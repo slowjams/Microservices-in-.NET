@@ -1,8 +1,10 @@
 using Common.Logging;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Models;
 using Polly;
@@ -33,10 +35,9 @@ namespace Shopping.Aggregator
             services
                 .AddHttpClient<ICatalogService, CatalogService>(c => c.BaseAddress = new Uri(Configuration["ApiSettings:CatalogUrl"]))
                 .AddHttpMessageHandler<LoggingDelegatingHandler>()
-                .AddPolicyHandler(GetRetryPolicy())
-                .AddPolicyHandler(GetCircuitBreakerPolicy()); ;
+                .AddPolicyHandler(GetCombinedPolicy());
 
-            //v1, AddTransientHttpErrorPolicy adds a PolicyHttpMessageHandler internally
+            // v1, AddTransientHttpErrorPolicy adds a PolicyHttpMessageHandler internally
             /*
             services
                 .AddHttpClient<IBasketService, BasketService>(c => c.BaseAddress = new Uri(Configuration["ApiSettings:BasketUrl"]))
@@ -51,27 +52,26 @@ namespace Shopping.Aggregator
                .AddHttpClient<IBasketService, BasketService>(c =>
                {
                    c.BaseAddress = new Uri(Configuration["ApiSettings:BasketUrl"]);
-                   //c.Timeout = TimeSpan.FromSeconds(5);
                })
-               .AddHttpMessageHandler<LoggingDelegatingHandler>()
-               //.AddPolicyHandler(GetRetryPolicy())
-               //.AddPolicyHandler(GetCircuitBreakerPolicy());
                .AddPolicyHandler(GetCombinedPolicy());
-               //.AddHttpMessageHandler<LoggingDelegatingHandler>();
-               // 
+            // 
 
             services
                 .AddHttpClient<IOrderService, OrderService>(c => c.BaseAddress = new Uri(Configuration["ApiSettings:OrderingUrl"]))
                 .AddHttpMessageHandler<LoggingDelegatingHandler>()
-                .AddPolicyHandler(GetRetryPolicy())
-                .AddPolicyHandler(GetCircuitBreakerPolicy()); ;
+                .AddPolicyHandler(GetCombinedPolicy());
 
             services.AddControllers();
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "Shopping.Aggregator", Version = "v1" });
             });
-      
+
+            services
+                .AddHealthChecks()
+                .AddUrlGroup(new Uri($"{Configuration["ApiSettings:CatalogUrl"]}/hc"), "Catalog.API", HealthStatus.Degraded)
+                .AddUrlGroup(new Uri($"{Configuration["ApiSettings:BasketUrl"]}/hc"), "Basket.API", HealthStatus.Degraded)
+                .AddUrlGroup(new Uri($"{Configuration["ApiSettings:OrderingUrl"]}/hc"), "Ordering.API", HealthStatus.Degraded);
         }
 
         private static IAsyncPolicy<HttpResponseMessage> GetCombinedPolicy()
@@ -88,31 +88,32 @@ namespace Shopping.Aggregator
             return Policy.WrapAsync(retry, timeout);
         }
 
-        private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
-        {
-            return
-                HttpPolicyExtensions
-                    .HandleTransientHttpError()
-                    .WaitAndRetryAsync(
-                        retryCount: 3,
-                        sleepDurationProvider: currNthRetry => TimeSpan.FromSeconds(Math.Pow(2, currNthRetry)),
-                        onRetry: (exception, retryCount, context) =>
-                        {
-                            Log.Error($"Retry {retryCount} of {context.PolicyKey} at {context.OperationKey}, due to: {exception}.");
-                        });
+        // doesn't work, not sure why
+        //private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+        //{
+        //    return
+        //        HttpPolicyExtensions
+        //            .HandleTransientHttpError()
+        //            .WaitAndRetryAsync(
+        //                retryCount: 3,
+        //                sleepDurationProvider: currNthRetry => TimeSpan.FromSeconds(Math.Pow(2, currNthRetry)),
+        //                onRetry: (exception, retryCount, context) =>
+        //                {
+        //                    Log.Error($"Retry {retryCount} of {context.PolicyKey} at {context.OperationKey}, due to: {exception}.");
+        //                });
 
-        }
+        //}
 
-        private static IAsyncPolicy<HttpResponseMessage> GetCircuitBreakerPolicy()
-        {
-            return
-                HttpPolicyExtensions
-                    .HandleTransientHttpError()
-                    .CircuitBreakerAsync(
-                        handledEventsAllowedBeforeBreaking: 5,
-                        durationOfBreak: TimeSpan.FromSeconds(30));
+        //private static IAsyncPolicy<HttpResponseMessage> GetCircuitBreakerPolicy()
+        //{
+        //    return
+        //        HttpPolicyExtensions
+        //            .HandleTransientHttpError()
+        //            .CircuitBreakerAsync(
+        //                handledEventsAllowedBeforeBreaking: 5,
+        //                durationOfBreak: TimeSpan.FromSeconds(30));
 
-        }
+        //}
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
@@ -130,6 +131,7 @@ namespace Shopping.Aggregator
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
+                endpoints.MapHealthChecks("/hc");
             });
         }
     }

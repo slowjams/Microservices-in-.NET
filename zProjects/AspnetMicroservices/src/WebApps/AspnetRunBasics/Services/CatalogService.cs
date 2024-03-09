@@ -5,6 +5,7 @@ using Serilog.Context;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Transactions;
@@ -24,10 +25,13 @@ namespace AspnetRunBasics.Services
 
         public async Task<IEnumerable<CatalogModel>> GetCatalog()
         {
+            using (_logger.BeginScope(new Dictionary<string, object> { { "name", "John" }, { "age", 21 } }))
             using (LogContext.PushProperty("CustomField", "Hello World"))
             {
                 _logger.LogInformation("Getting Catalog Products from url: {url} and custom property : {customProperty}", _client.BaseAddress, 6);
             }
+
+            Activity g;
 
             var response = await _client.GetAsync("/Catalog");
 

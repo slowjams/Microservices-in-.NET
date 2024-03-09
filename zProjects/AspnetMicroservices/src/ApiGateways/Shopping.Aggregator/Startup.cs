@@ -13,6 +13,7 @@ using Polly.Timeout;
 using Serilog;
 using Shopping.Aggregator.Services;
 using System;
+using System.Diagnostics;
 using System.Net.Http;
 
 namespace Shopping.Aggregator
@@ -36,7 +37,6 @@ namespace Shopping.Aggregator
                 .AddHttpClient<ICatalogService, CatalogService>(c => c.BaseAddress = new Uri(Configuration["ApiSettings:CatalogUrl"]))
                 .AddHttpMessageHandler<LoggingDelegatingHandler>()
                 .AddPolicyHandler(GetCombinedPolicy());
-
             // v1, AddTransientHttpErrorPolicy adds a PolicyHttpMessageHandler internally
             /*
             services
